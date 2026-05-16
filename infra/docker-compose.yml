@@ -1,3 +1,7 @@
+networks:
+  smartcity-network:
+    driver: bridge
+
 services:
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.0
@@ -46,7 +50,3 @@ services:
       - "8080:8080"
     networks:
       - smartcity-network
-
-networks:
-  smartcity-network:
-    driver: bridge

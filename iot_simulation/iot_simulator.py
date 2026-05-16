@@ -1,100 +1,90 @@
-# iot_simulator.py
+# iot_simulator.py - Version avec fichier .env
+import asyncio
 import json
 import random
-import time
 from datetime import datetime
-from kafka import KafkaProducer
+from azure.iot.device.aio import IoTHubDeviceClient
+from dotenv import load_dotenv
+import os
 
-# Configuration Kafka
-KAFKA_BOOTSTRAP_SERVERS = 'localhost:9092'
+# Charger les variables d'environnement depuis .env
+load_dotenv()
 
-# Topics Kafka par type de capteur
-TOPICS = {
-    'traffic': 'smartcity-traffic',
-    'pollution': 'smartcity-pollution',
-    'lighting': 'smartcity-lighting',
-    'waste': 'smartcity-waste'
+# ============================================
+# Les chaînes de connexion sont chargées depuis le fichier .env
+# ============================================
+
+DEVICE_CONNECTION_STRINGS = {
+    # Pollution
+    "pollution_centre_ville": os.getenv("POLLUTION_CENTRE_VILLE"),
+    "pollution_zone_industrielle": os.getenv("POLLUTION_ZONE_INDUSTRIELLE"),
+    "pollution_residentiel": os.getenv("POLLUTION_RESIDENTIEL"),
+    "pollution_peripherie": os.getenv("POLLUTION_PERIPHERIE"),
+    
+    # Trafic
+    "traffic_centre_ville": os.getenv("TRAFFIC_CENTRE_VILLE"),
+    "traffic_zone_industrielle": os.getenv("TRAFFIC_ZONE_INDUSTRIELLE"),
+    "traffic_residentiel": os.getenv("TRAFFIC_RESIDENTIEL"),
+    "traffic_peripherie": os.getenv("TRAFFIC_PERIPHERIE"),
+    
+    # Éclairage
+    "lighting_centre_ville": os.getenv("LIGHTING_CENTRE_VILLE"),
+    "lighting_zone_industrielle": os.getenv("LIGHTING_ZONE_INDUSTRIELLE"),
+    "lighting_residentiel": os.getenv("LIGHTING_RESIDENTIEL"),
+    "lighting_peripherie": os.getenv("LIGHTING_PERIPHERIE"),
+    
+    # Déchets
+    "waste_centre_ville": os.getenv("WASTE_CENTRE_VILLE"),
+    "waste_zone_industrielle": os.getenv("WASTE_ZONE_INDUSTRIELLE"),
+    "waste_residentiel": os.getenv("WASTE_RESIDENTIEL"),
+    "waste_peripherie": os.getenv("WASTE_PERIPHERIE"),
 }
 
-# Zones de la ville
+# Vérifier qu'aucune clé n'est manquante
+for device_id, conn_str in DEVICE_CONNECTION_STRINGS.items():
+    if not conn_str or conn_str == "xxx" or "xxx" in conn_str:
+        print(f"⚠️ Attention: La chaîne de connexion pour {device_id} n'est pas valide (contient 'xxx')")
+
+# Zones
 ZONES = ['centre_ville', 'zone_industrielle', 'residentiel', 'peripherie']
 
-class SensorSimulator:
+class SmartCitySimulator:
     def __init__(self):
-        """Initialise le producteur Kafka"""
-        self.producer = KafkaProducer(
-            bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
-            value_serializer=lambda v: json.dumps(v).encode('utf-8')
-        )
-        print("✅ Connecté à Kafka")
-    
-    def get_traffic_data(self, zone, hour):
-        """Génère des données de trafic réalistes"""
-        # Base de trafic par zone
-        base_traffic = {
-            'centre_ville': 60,
-            'zone_industrielle': 45,
-            'residentiel': 25,
-            'peripherie': 15
-        }
+        self.clients = {}
         
-        # Coefficient selon l'heure (heures de pointe)
-        if hour in [8, 17]:  # Pic maximum
-            coeff = 3.0
-        elif hour in [7, 9, 16, 18]:  # Heures de demi-pointe
-            coeff = 2.0
-        elif 10 <= hour <= 15:  # Heures creuses
-            coeff = 0.8
-        elif 20 <= hour <= 23:  # Soirée
-            coeff = 0.5
-        else:  # Nuit
-            coeff = 0.2
-            
-        vehicles = int(base_traffic[zone] * coeff * random.uniform(0.8, 1.2))
-        
-        # Vitesse moyenne inversement proportionnelle au trafic
-        speed = max(10, min(80, 80 - (vehicles / 2)))
-        
-        # Niveau de congestion
-        if vehicles > 100:
-            congestion = 'critical'
-        elif vehicles > 70:
-            congestion = 'high'
-        elif vehicles > 40:
-            congestion = 'medium'
-        else:
-            congestion = 'low'
-            
-        return {
-            'vehicles_per_min': vehicles,
-            'avg_speed_kmh': round(speed, 1),
-            'congestion': congestion
-        }
+    async def connect_devices(self):
+        """Connecte tous les capteurs à Azure IoT Hub"""
+        print("🔌 Connexion des capteurs à Azure IoT Hub...")
+        for device_id, conn_str in DEVICE_CONNECTION_STRINGS.items():
+            if not conn_str or "xxx" in conn_str:
+                print(f"⚠️ Ignoré {device_id}: chaîne invalide")
+                continue
+            try:
+                client = IoTHubDeviceClient.create_from_connection_string(conn_str)
+                await client.connect()
+                self.clients[device_id] = client
+                print(f"✅ Connecté: {device_id}")
+            except Exception as e:
+                print(f"❌ Erreur connexion {device_id}: {e}")
+        print(f"📡 {len(self.clients)} capteurs connectés\n")
     
     def get_pollution_data(self, zone, hour):
-        """Génère des données de pollution réalistes"""
-        # Base de pollution par zone
-        base_co2 = {
+        """Génère des données de pollution"""
+        base_pollution = {
             'centre_ville': 500,
             'zone_industrielle': 700,
             'residentiel': 400,
             'peripherie': 350
         }
         
-        # Coefficient selon l'heure (pollution plus élevée aux heures de pointe)
         if hour in [8, 9, 17, 18]:
-            coeff = 1.4
-        elif 10 <= hour <= 16:
-            coeff = 1.1
+            coeff = 1.5
         else:
-            coeff = 0.9
+            coeff = 1.0
             
-        co2 = base_co2[zone] * coeff * random.uniform(0.85, 1.15)
-        
-        # PM2.5 corrélé au CO2
+        co2 = base_pollution[zone] * coeff * random.uniform(0.8, 1.2)
         pm25 = (co2 / 15) * random.uniform(0.8, 1.2)
         
-        # AQI (Air Quality Index)
         if co2 > 800:
             aqi = random.randint(300, 500)
         elif co2 > 600:
@@ -103,121 +93,127 @@ class SensorSimulator:
             aqi = random.randint(50, 150)
             
         return {
-            'co2_ppm': round(co2, 1),
-            'pm25': round(pm25, 1),
-            'air_quality_index': aqi
+            "timestamp": datetime.utcnow().isoformat(),
+            "device_id": f"pollution_{zone}",
+            "zone": zone,
+            "type": "pollution",
+            "co2_ppm": round(co2, 1),
+            "pm25": round(pm25, 1),
+            "air_quality_index": aqi
+        }
+    
+    def get_traffic_data(self, zone, hour):
+        """Génère des données de trafic"""
+        base_traffic = {
+            'centre_ville': 60,
+            'zone_industrielle': 45,
+            'residentiel': 25,
+            'peripherie': 15
+        }
+        
+        if hour in [8, 17]:
+            coeff = 3.0
+        elif hour in [7, 9, 16, 18]:
+            coeff = 2.0
+        else:
+            coeff = 0.8
+            
+        vehicles = int(base_traffic[zone] * coeff * random.uniform(0.8, 1.2))
+        
+        return {
+            "timestamp": datetime.utcnow().isoformat(),
+            "device_id": f"traffic_{zone}",
+            "zone": zone,
+            "type": "traffic",
+            "vehicles_per_min": vehicles,
+            "avg_speed_kmh": round(max(10, min(80, 80 - vehicles/2)), 1),
+            "congestion": "critical" if vehicles > 100 else "high" if vehicles > 70 else "medium" if vehicles > 40 else "low"
         }
     
     def get_lighting_data(self, zone, hour):
-        """Génère des données d'éclairage public"""
-        # Nuit = éclairage allumé
+        """Génère des données d'éclairage"""
         is_night = hour < 6 or hour > 20
         
-        if is_night:
-            luminosity = random.randint(30, 80)  # lux
-            power = round(random.uniform(0.3, 0.6), 2)  # kW
-            status = 'working' if random.random() > 0.03 else 'faulty'  # 3% de panne
-        else:
-            luminosity = random.randint(300, 800)  # lumière naturelle
-            power = round(random.uniform(0.05, 0.15), 2)
-            status = 'working'
-            
         return {
-            'luminosity_lux': luminosity,
-            'status': status,
-            'power_kw': power
+            "timestamp": datetime.utcnow().isoformat(),
+            "device_id": f"lighting_{zone}",
+            "zone": zone,
+            "type": "lighting",
+            "luminosity_lux": random.randint(30, 80) if is_night else random.randint(300, 800),
+            "status": "working" if random.random() > 0.05 else "faulty",
+            "power_kw": round(random.uniform(0.3, 0.6) if is_night else random.uniform(0.05, 0.15), 2)
         }
     
     def get_waste_data(self, zone, hour):
-        """Génère des données de remplissage des poubelles"""
-        # Remplissage progresse sur la journée
-        base_fill = (hour * 100 / 24) * random.uniform(0.9, 1.1)
-        fill_percent = min(100, max(0, base_fill))
-        
-        # Poids proportionnel au remplissage
-        weight = fill_percent * 1.2
-        
-        # Alerte si trop plein
-        alert = fill_percent > 90
+        """Génère des données de déchets"""
+        fill_percent = min(100, (hour * 100 / 24) * random.uniform(0.9, 1.1))
         
         return {
-            'fill_percent': round(fill_percent, 1),
-            'weight_kg': round(weight, 1),
-            'alert': alert
+            "timestamp": datetime.utcnow().isoformat(),
+            "device_id": f"waste_{zone}",
+            "zone": zone,
+            "type": "waste",
+            "fill_percent": round(fill_percent, 1),
+            "weight_kg": round(fill_percent * 1.2, 1),
+            "alert": fill_percent > 90
         }
     
-    def send_data(self):
-        """Envoie les données pour tous les capteurs et zones"""
-        print("🚀 Démarrage de la simulation Smart City...")
-        print(f"📡 Envoi vers Kafka : {KAFKA_BOOTSTRAP_SERVERS}")
-        print("-" * 50)
+    async def send_data(self):
+        """Envoie les données vers Azure IoT Hub"""
+        await self.connect_devices()
+        
+        if not self.clients:
+            print("❌ Aucun capteur connecté. Vérifiez vos chaînes de connexion.")
+            return
         
         message_count = 0
-        
         try:
             while True:
                 now = datetime.utcnow()
-                timestamp = now.isoformat()
                 hour = now.hour
                 
                 for zone in ZONES:
-                    # Trafic (toutes les 5 secondes)
-                    traffic_data = self.get_traffic_data(zone, hour)
-                    traffic_msg = {
-                        'timestamp': timestamp,
-                        'device_id': f'traffic_{zone}',
-                        'zone': zone,
-                        'type': 'traffic',
-                        **traffic_data
-                    }
-                    self.producer.send(TOPICS['traffic'], traffic_msg)
+                    # Pollution
+                    pollution_msg = self.get_pollution_data(zone, hour)
+                    device_id = f"pollution_{zone}"
+                    if device_id in self.clients:
+                        await self.clients[device_id].send_message(json.dumps(pollution_msg))
+                        print(f"📤 Pollution envoyée - {zone} (CO₂: {pollution_msg['co2_ppm']}ppm)")
                     
-                    # Pollution (toutes les 5 secondes)
-                    pollution_data = self.get_pollution_data(zone, hour)
-                    pollution_msg = {
-                        'timestamp': timestamp,
-                        'device_id': f'pollution_{zone}',
-                        'zone': zone,
-                        'type': 'pollution',
-                        **pollution_data
-                    }
-                    self.producer.send(TOPICS['pollution'], pollution_msg)
+                    # Traffic
+                    traffic_msg = self.get_traffic_data(zone, hour)
+                    device_id = f"traffic_{zone}"
+                    if device_id in self.clients:
+                        await self.clients[device_id].send_message(json.dumps(traffic_msg))
+                        print(f"📤 Trafic envoyé - {zone} (Véhicules: {traffic_msg['vehicles_per_min']}/min)")
                     
-                    # Éclairage (toutes les 10 secondes)
+                    # Éclairage - toutes les 10 secondes (modulo 2)
                     if message_count % 2 == 0:
-                        lighting_data = self.get_lighting_data(zone, hour)
-                        lighting_msg = {
-                            'timestamp': timestamp,
-                            'device_id': f'lighting_{zone}',
-                            'zone': zone,
-                            'type': 'lighting',
-                            **lighting_data
-                        }
-                        self.producer.send(TOPICS['lighting'], lighting_msg)
+                        lighting_msg = self.get_lighting_data(zone, hour)
+                        device_id = f"lighting_{zone}"
+                        if device_id in self.clients:
+                            await self.clients[device_id].send_message(json.dumps(lighting_msg))
+                            print(f"📤 Éclairage envoyé - {zone}")
                     
-                    # Déchets (toutes les 30 secondes)
+                    # Déchets - toutes les 30 secondes (modulo 6)
                     if message_count % 6 == 0:
-                        waste_data = self.get_waste_data(zone, hour)
-                        waste_msg = {
-                            'timestamp': timestamp,
-                            'device_id': f'waste_{zone}',
-                            'zone': zone,
-                            'type': 'waste',
-                            **waste_data
-                        }
-                        self.producer.send(TOPICS['waste'], waste_msg)
+                        waste_msg = self.get_waste_data(zone, hour)
+                        device_id = f"waste_{zone}"
+                        if device_id in self.clients:
+                            await self.clients[device_id].send_message(json.dumps(waste_msg))
+                            print(f"📤 Déchets envoyés - {zone} (Remplissage: {waste_msg['fill_percent']}%)")
                 
-                self.producer.flush()
                 message_count += 1
-                print(f"📤 [{message_count}] Messages envoyés pour {timestamp}")
-                time.sleep(5)  # Boucle toutes les 5 secondes
+                print(f"--- Cycle {message_count} terminé ---\n")
+                await asyncio.sleep(5)
                 
         except KeyboardInterrupt:
-            print("\n🛑 Simulation arrêtée par l'utilisateur")
+            print("\n🛑 Simulation arrêtée")
         finally:
-            self.producer.close()
-            print("🔒 Producteur Kafka fermé")
+            for client in self.clients.values():
+                await client.disconnect()
+            print("🔒 Tous les capteurs déconnectés")
 
 if __name__ == "__main__":
-    simulator = SensorSimulator()
-    simulator.send_data()
+    simulator = SmartCitySimulator()
+    asyncio.run(simulator.send_data())
