@@ -1,23 +1,23 @@
 # iot_to_kafka_bridge.py - Lit depuis Azure IoT Hub et envoie vers Kafka
+import os
+import json
+from dotenv import load_dotenv
 from azure.eventhub import EventHubConsumerClient
 from kafka import KafkaProducer
-import json
-import os
 
-# Configuration Kafka
-KAFKA_BOOTSTRAP_SERVERS = 'localhost:9092'
+# Charger .env depuis le même dossier
+env_path = os.path.join(os.path.dirname(__file__), '.env')
+load_dotenv(env_path)
 
-# Configuration Azure Event Hub (compatible IoT Hub)
-# À récupérer depuis Azure Portal → IoT Hub → Built-in endpoints
-# Cliquez sur "Built-in endpoints" → Copiez "Event Hub-compatible endpoint"
-EVENT_HUB_CONNECTION_STRING = "Endpoint=sb://ihsuprodparres010dednamespace.servicebus.windows.net/;SharedAccessKeyName=iothubowner;SharedAccessKey=cnPlPBT3Rq95QeK0dK1slDXWk6jtWfjbkAIoTDpnM6E=;EntityPath=iothub-ehub-smartcityh-55757095-4fc13d48b9"
+KAFKA_BOOTSTRAP_SERVERS = 'localhost:9093'
 
-# Topics Kafka par type
+EVENT_HUB_CONNECTION_STRING = os.environ.get('EVENT_HUB_CONNECTION_STRING', '')
+
 TOPICS = {
     'pollution': 'smartcity-pollution',
     'traffic': 'smartcity-traffic',
-    'lighting': 'smartcity-lighting',
-    'waste': 'smartcity-waste'
+    'eclairage': 'smartcity-eclairage',
+    'dechets': 'smartcity-dechets'
 }
 
 class IoTToKafkaBridge:
@@ -27,54 +27,61 @@ class IoTToKafkaBridge:
             value_serializer=lambda v: json.dumps(v).encode('utf-8')
         )
         print("✅ Connecté à Kafka")
-        
+
     def get_topic_from_device(self, device_id):
-        """Détermine le topic Kafka à partir du device_id"""
-        if 'pollution' in device_id:
+        did = device_id.lower()
+        if 'pollution' in did:
             return TOPICS['pollution']
-        elif 'traffic' in device_id:
+        elif 'traffic' in did:
             return TOPICS['traffic']
-        elif 'lighting' in device_id:
-            return TOPICS['lighting']
-        elif 'waste' in device_id:
-            return TOPICS['waste']
+        elif 'eclairage' in did or 'lighting' in did:
+            return TOPICS['eclairage']
+        elif 'dechets' in did or 'waste' in did:
+            return TOPICS['dechets']
         return None
-    
+
     def on_event(self, partition_context, event):
-        """Callback appelé pour chaque message reçu d'IoT Hub"""
         try:
-            # Décoder le message
             message_body = event.body_as_str()
             data = json.loads(message_body)
-            
-            device_id = data.get('device_id', 'unknown')
+
+            # device_id vient des propriétés système IoT Hub (fiable)
+            device_id = event.system_properties.get(
+                b"iothub-connection-device-id", b"unknown"
+            ).decode()
+
+            if device_id == "unknown" and "device_id" in data:
+                device_id = data["device_id"]
+
             topic = self.get_topic_from_device(device_id)
-            
+
             if topic:
-                # Envoyer vers Kafka
                 self.producer.send(topic, data)
                 self.producer.flush()
                 print(f"✅ Bridge: {device_id} → {topic}")
             else:
                 print(f"⚠️ Topic inconnu pour device: {device_id}")
-                
+
         except Exception as e:
             print(f"❌ Erreur: {e}")
-    
+
     def run(self):
-        """Lance le bridge"""
         print("🚀 Démarrage du bridge IoT Hub → Kafka")
         print("📡 En attente des messages depuis Azure IoT Hub...")
-        
+
+        if not EVENT_HUB_CONNECTION_STRING:
+            print("❌ EVENT_HUB_CONNECTION_STRING manquante dans .env")
+            return
+
         client = EventHubConsumerClient.from_connection_string(
             EVENT_HUB_CONNECTION_STRING,
             consumer_group="$Default"
         )
-        
+
         try:
             client.receive(
                 on_event=self.on_event,
-                starting_position="-1"  # Lire depuis le début
+                starting_position="@latest"
             )
         except KeyboardInterrupt:
             print("\n🛑 Bridge arrêté")
