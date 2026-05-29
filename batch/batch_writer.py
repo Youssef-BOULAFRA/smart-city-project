@@ -1,6 +1,13 @@
 import os
 import csv
 from datetime import datetime
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from streaming.spark_env import add_streaming_to_path
+
+add_streaming_to_path()
+
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import to_date, hour, col, avg, count as _count, max as _max, min as _min, sum as _sum, when
 from delta import configure_spark_with_delta_pip
@@ -27,9 +34,12 @@ builder = SparkSession.builder \
     .appName("SmartCityBatchETL") \
     .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension") \
     .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog") \
-    .config(f"fs.azure.account.key.{STORAGE_ACCOUNT_NAME}.dfs.core.windows.net", STORAGE_ACCOUNT_KEY)
+    .config(f"spark.hadoop.fs.azure.account.key.{STORAGE_ACCOUNT_NAME}.dfs.core.windows.net", STORAGE_ACCOUNT_KEY)
 
-spark = configure_spark_with_delta_pip(builder).getOrCreate()
+spark = configure_spark_with_delta_pip(
+    builder,
+    extra_packages=["org.apache.hadoop:hadoop-azure:3.3.4"]
+).getOrCreate()
 spark.sparkContext.setLogLevel("WARN")
 
 # ============================================

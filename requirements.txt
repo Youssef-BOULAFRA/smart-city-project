@@ -3,4 +3,7 @@ requests>=2.31.0
 kafka-python-ng>=2.2.3
 python-dotenv>=1.0.0
 influxdb-client>=1.36.0
-azure-eventhub>=5.11.0pip
+azure-eventhub>=5.11.0
+azure-iot-device>=2.13.0
+delta-spark==3.2.0
+importlib-metadata>=7.0.0

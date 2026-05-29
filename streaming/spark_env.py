@@ -1,16 +1,61 @@
 import sys
 import os
+import subprocess
 
 # --- Java ---
-os.environ['JAVA_HOME']            = r'C:\Program Files\Java\jdk-11.0.30'
+os.environ['JAVA_HOME']            = r'C:\Program Files\Java\jdk-21'
 
 # --- Python pour les workers Spark ---
-os.environ['PYSPARK_PYTHON']        = sys.executable
-os.environ['PYSPARK_DRIVER_PYTHON'] = sys.executable
+def _windows_short_path(path):
+    if os.name != 'nt' or ' ' not in path:
+        return path
+    try:
+        result = subprocess.run(
+            ['cmd', '/c', f'for %I in ("{path}") do @echo %~sI'],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        short_path = result.stdout.strip().splitlines()[-1].strip()
+        return short_path or path
+    except Exception:
+        return path
+
+def _map_venv_drive_letter():
+    if os.name != 'nt':
+        return None
+    venv_root = os.path.dirname(os.path.dirname(sys.executable))
+    if ' ' not in venv_root:
+        return None
+    drive_letter = 'X:'
+    try:
+        subprocess.run(
+            ['subst', drive_letter, venv_root],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return drive_letter
+    except Exception:
+        return None
+
+_venv_drive = _map_venv_drive_letter()
+if _venv_drive:
+    _python_executable = rf'{_venv_drive}\Scripts\python.exe'
+else:
+    _python_executable = _windows_short_path(sys.executable)
+
+os.environ['PYSPARK_PYTHON']        = _python_executable
+os.environ['PYSPARK_DRIVER_PYTHON'] = _python_executable
 
 # --- FIX CRITIQUE Windows: winutils.exe doit exister dans C:\hadoop\bin ---
 # Télécharger depuis https://github.com/cdarlint/winutils (hadoop-3.3.5)
-os.environ['HADOOP_HOME']           = r'C:\hadoop'
+if os.path.exists(r'C:\hadoop\bin\winutils.exe'):
+    os.environ['HADOOP_HOME'] = r'C:\hadoop'
+    hadoop_bin = r'C:\hadoop\bin'
+    os.environ['PATH'] = hadoop_bin + os.pathsep + os.environ.get('PATH', '')
+elif 'HADOOP_HOME' in os.environ:
+    os.environ.pop('HADOOP_HOME', None)
 
 # --- Évite les erreurs de binding réseau sur Windows ---
 os.environ['SPARK_LOCAL_IP']        = '127.0.0.1'
