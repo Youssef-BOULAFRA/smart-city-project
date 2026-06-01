@@ -4,6 +4,7 @@ networks:
 
 volumes:
   influxdb-data:
+  grafana-data:
 
 services:
   zookeeper:
@@ -71,3 +72,18 @@ services:
       - influxdb-data:/var/lib/influxdb2
     networks:
       - smartcity-network
+      
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=smartcity-admin
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+    networks:
+      - smartcity-network
+    depends_on:
+      - influxdb

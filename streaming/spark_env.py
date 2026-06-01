@@ -3,7 +3,7 @@ import os
 import subprocess
 
 # --- Java ---
-os.environ['JAVA_HOME']            = r'C:\Program Files\Java\jdk-21'
+os.environ['JAVA_HOME']= r'C:\Program Files\Eclipse Adoptium\jdk-17.0.17.10-hotspot'
 
 # --- Python pour les workers Spark ---
 def _windows_short_path(path):
