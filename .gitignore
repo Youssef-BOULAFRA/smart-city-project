@@ -1,4 +1,5 @@
 .env 
+run
 iot_simulation/.env 
 __pycache__/
 *.pyc

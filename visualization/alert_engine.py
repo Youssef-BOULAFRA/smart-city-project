@@ -9,16 +9,36 @@ from email.mime.multipart import MIMEMultipart
 from kafka import KafkaConsumer
 from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.write_api import SYNCHRONOUS
+from dotenv import load_dotenv
+
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'iot_simulation', '.env'))
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-KAFKA_BOOTSTRAP   = "localhost:9093"    # PLAINTEXT_HOST (hors Docker)
+# Utilisation d'Azure Event Hubs (endpoint Kafka)
+EVENT_HUB_FQDN = os.getenv("EVENT_HUB_FQDN", "")
+EVENT_HUB_CONNECTION_STRING_LISTEN = os.getenv("EVENT_HUB_CONNECTION_STRING_LISTEN", "")
+
+if EVENT_HUB_FQDN and EVENT_HUB_CONNECTION_STRING_LISTEN:
+    KAFKA_BOOTSTRAP = f"{EVENT_HUB_FQDN}:9093"
+    # Configuration de sécurité pour le consumer
+    KAFKA_SECURITY_CONFIG = {
+        'security_protocol': 'SASL_SSL',
+        'sasl_mechanism': 'PLAIN',
+        'sasl_plain_username': '$ConnectionString',
+        'sasl_plain_password': EVENT_HUB_CONNECTION_STRING_LISTEN,
+    }
+else:
+    # Fallback local (si les variables ne sont pas définies)
+    KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP", "localhost:9093")
+    KAFKA_SECURITY_CONFIG = {}
+
 KAFKA_TOPIC       = "smartcity-alerts"
 KAFKA_GROUP_ID    = "alert-engine-p5"
 
-INFLUX_URL    = "http://localhost:8086"
-INFLUX_TOKEN  = "smartcity-token"
-INFLUX_ORG    = "smartcity"
-INFLUX_BUCKET = "smartcity"
+INFLUX_URL    = os.getenv("INFLUX_URL", "http://localhost:8086")
+INFLUX_TOKEN  = os.getenv("INFLUX_TOKEN", "smartcity-token")
+INFLUX_ORG    = os.getenv("INFLUX_ORG", "smartcity")
+INFLUX_BUCKET = os.getenv("INFLUX_BUCKET", "smartcity")
 
 # Optionnel — Email (mettre les vraies valeurs si vous activez SMTP)
 SMTP_ENABLED  = False
@@ -177,14 +197,20 @@ def main():
     print("\n⏳ Connexion à Kafka...")
 
     try:
-        consumer = KafkaConsumer(
-            KAFKA_TOPIC,
-            bootstrap_servers=KAFKA_BOOTSTRAP,
-            value_deserializer=lambda m: json.loads(m.decode("utf-8")),
-            auto_offset_reset="latest",
-            group_id=KAFKA_GROUP_ID,
-            enable_auto_commit=True,
-        )
+        # Paramètres de base du consumer
+        consumer_params = {
+            'bootstrap_servers': KAFKA_BOOTSTRAP,
+            'value_deserializer': lambda m: json.loads(m.decode('utf-8')),
+            'auto_offset_reset': 'latest',
+            'group_id': KAFKA_GROUP_ID,
+            'enable_auto_commit': True,
+            'api_version_auto_timeout_ms': 10000,  # Évite les timeouts
+        }
+        # Ajouter les paramètres de sécurité si on utilise Event Hubs
+        if KAFKA_SECURITY_CONFIG:
+            consumer_params.update(KAFKA_SECURITY_CONFIG)
+        # Création unique du consumer
+        consumer = KafkaConsumer(KAFKA_TOPIC, **consumer_params)
         print("✅ Connecté à Kafka — en attente d'alertes...\n")
     except Exception as e:
         print(f"❌ Impossible de se connecter à Kafka : {e}")
@@ -195,13 +221,9 @@ def main():
     try:
         for message in consumer:
             alert = message.value
-
-            # Filtrer : ne traiter que les alertes ORANGE et ROUGE
             niveau = alert.get("alert_level", "VERT")
             if niveau not in ("ORANGE", "ROUGE"):
                 continue
-
-            # Traitement en parallèle pour ne pas bloquer la lecture Kafka
             t = threading.Thread(
                 target=lambda a=alert: [
                     display_alert(a),
@@ -211,13 +233,11 @@ def main():
                 daemon=True,
             )
             t.start()
-
     except KeyboardInterrupt:
         print("\n🛑 Alert Engine arrêté")
     finally:
         consumer.close()
         _influx_client.close()
-
 
 if __name__ == "__main__":
     main()

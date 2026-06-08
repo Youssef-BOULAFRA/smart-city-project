@@ -1,9 +1,25 @@
+import os
+from dotenv import load_dotenv
+
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'iot_simulation', '.env'))
+
 # ============================================================
 # configuration/config.py — Smart City P3 (version finale)
 # ============================================================
 
 # --- Kafka ---
-KAFKA_BOOTSTRAP = "localhost:9093"   # PLAINTEXT_HOST du docker-compose P2
+#KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP", "localhost:9093")
+EVENT_HUB_FQDN = os.getenv("EVENT_HUB_FQDN", "")
+EVENT_HUB_CONNECTION_STRING_SEND = os.getenv("EVENT_HUB_CONNECTION_STRING_SEND", "")
+EVENT_HUB_CONNECTION_STRING_LISTEN = os.getenv("EVENT_HUB_CONNECTION_STRING_LISTEN", "")
+
+# Pour la lecture (consumers)
+KAFKA_BOOTSTRAP_READ = f"{EVENT_HUB_FQDN}:9093"
+# Pour l'écriture (producers) – même endpoint, clé différente
+KAFKA_BOOTSTRAP_WRITE = KAFKA_BOOTSTRAP_READ
+
+# KAFKA_BOOTSTRAP = f"{EVENT_HUB_FQDN}:9093"
+# EVENT_HUB_CONNECTION_STRING = os.getenv("EVENT_HUB_CONNECTION_STRING", "")
 
 # Topics sources (P2)
 TOPIC_POLLUTION = "smartcity-pollution"
@@ -75,7 +91,8 @@ SEUIL_CONSO_ROUGE_MIN  = 0.55   # > 0.55 kW = panne/court-circuit probable
 # SPARK
 # ============================================================
 # Préfixe file:/// obligatoire sur Windows pour les chemins locaux
-CHECKPOINT_DIR = "file:///C:/tmp/spark-checkpoints"
+# CHECKPOINT_DIR = "file:///C:/tmp/spark-checkpoints" # Pour windows
+CHECKPOINT_DIR = os.getenv("CHECKPOINT_DIR", "/tmp/spark-checkpoints")
 
 # JARs locaux dans infra/jars/ (évite le téléchargement Maven au démarrage)
 JARS_REQUIRED = [
@@ -93,7 +110,7 @@ JARS_REQUIRED = [
 # ============================================================
 # INFLUXDB
 # ============================================================
-INFLUX_URL    = "http://localhost:8086"
-INFLUX_TOKEN  = "smartcity-token"
-INFLUX_ORG    = "smartcity"
-INFLUX_BUCKET = "smartcity"
+INFLUX_URL      = os.getenv("INFLUX_URL", "http://localhost:8086")
+INFLUX_TOKEN    = os.getenv("INFLUX_TOKEN", "smartcity-token")
+INFLUX_ORG      = os.getenv("INFLUX_ORG", "smartcity")
+INFLUX_BUCKET   = os.getenv("INFLUX_BUCKET", "smartcity")

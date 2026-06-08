@@ -2,18 +2,22 @@ import requests
 import json
 import time
 import sys
+import os
+from dotenv import load_dotenv
+
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'iot_simulation', '.env'))
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-GRAFANA_URL      = "http://localhost:3000"
-GRAFANA_USER     = "admin"
-GRAFANA_PASSWORD = "smartcity-admin"
+GRAFANA_URL      = os.getenv("GRAFANA_URL", "http://localhost:3000")
+GRAFANA_USER     = os.getenv("GRAFANA_USER", "admin")
+GRAFANA_PASSWORD = os.getenv("GRAFANA_PASSWORD", "smartcity-admin")
 GRAFANA_AUTH     = (GRAFANA_USER, GRAFANA_PASSWORD)
 
 # InfluxDB — accès depuis DANS le réseau Docker (nom du container)
-INFLUX_URL_DOCKER = "http://influxdb:8086"
-INFLUX_TOKEN      = "smartcity-token"
-INFLUX_ORG        = "smartcity"
-INFLUX_BUCKET     = "smartcity"
+INFLUX_URL_DOCKER = os.getenv("INFLUX_URL_INTERNAL", "http://influxdb:8086")
+INFLUX_TOKEN      = os.getenv("INFLUX_TOKEN", "smartcity-token")
+INFLUX_ORG        = os.getenv("INFLUX_ORG", "smartcity")
+INFLUX_BUCKET     = os.getenv("INFLUX_BUCKET", "smartcity")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

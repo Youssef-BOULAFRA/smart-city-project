@@ -14,10 +14,14 @@ from pyspark.sql.functions import (
 )
 # plus besoin de TimestampType, on utilise to_timestamp
 # from pyspark.sql.types import TimestampType   # commenté car inutile
-from configuration.config import KAFKA_BOOTSTRAP
-print(f"🔧 KAFKA_BOOTSTRAP from config = {KAFKA_BOOTSTRAP}")
+# from configuration.config import KAFKA_BOOTSTRAP
+# print(f"🔧 KAFKA_BOOTSTRAP from config = {KAFKA_BOOTSTRAP}")
 from configuration.config import (
-    KAFKA_BOOTSTRAP, CHECKPOINT_DIR,
+    EVENT_HUB_CONNECTION_STRING_SEND,
+    EVENT_HUB_CONNECTION_STRING_LISTEN,
+    KAFKA_BOOTSTRAP_READ,
+    KAFKA_BOOTSTRAP_WRITE,
+    CHECKPOINT_DIR,
     TOPIC_POLLUTION, TOPIC_TRAFFIC, TOPIC_ECLAIRAGE, TOPIC_DECHETS,
     TOPIC_ALERTS,
     # Pollution
@@ -46,7 +50,6 @@ spark = SparkSession.builder \
     .appName("SmartCity_SparkStreaming_P3") \
     .master("local[*]") \
     .config("spark.jars", jars) \
-    .config("spark.local.dir", r"C:\spark-temp") \
     .config("spark.driver.host", "127.0.0.1") \
     .config("spark.driver.bindAddress", "127.0.0.1") \
     .config("spark.sql.shuffle.partitions", "2") \
@@ -58,7 +61,7 @@ spark.sparkContext.setLogLevel("WARN")
 print("=" * 60)
 print("  Smart City — Spark Streaming P3")
 print("  Speed Layer opérationnel")
-print(f"  Kafka        : {KAFKA_BOOTSTRAP}")
+print(f"  Kafka        : {KAFKA_BOOTSTRAP_READ}")
 print(f"  Checkpoint   : {CHECKPOINT_DIR}")
 print("=" * 60)
 
@@ -68,10 +71,7 @@ print("=" * 60)
 # ══════════════════════════════════════════════════════════════
 def build_alert_pipeline(df_parsed, agg_exprs, alert_fn,
                          type_label, valeur_col):
-    """
-    Retourne (df_alerts_5min, df_trends_15min) prêts pour les sinks.
-    """
-    # — Fenêtre 5 min (alertes) ————————————————————————————
+    # Fenêtre 5 min (alertes)
     df_5min = df_parsed \
         .withWatermark("event_time", "5 minutes") \
         .groupBy(
@@ -85,7 +85,7 @@ def build_alert_pipeline(df_parsed, agg_exprs, alert_fn,
 
     df_alerts_filtered = df_alerts.filter(col("alert_level") != "VERT")
 
-    # — Fenêtre 15 min (tendances pour P5/Grafana) ————————
+    # Fenêtre 15 min (tendances)
     df_15min = df_parsed \
         .withWatermark("event_time", "15 minutes") \
         .groupBy(
@@ -98,18 +98,28 @@ def build_alert_pipeline(df_parsed, agg_exprs, alert_fn,
 
     return df_alerts_filtered, df_15min
 
+# Options pour les consumers (lecture)
+kafka_read_options = {
+    "kafka.bootstrap.servers": KAFKA_BOOTSTRAP_READ,
+    "kafka.security.protocol": "SASL_SSL",
+    "kafka.sasl.mechanism": "PLAIN",
+    "kafka.sasl.jaas.config": f'org.apache.kafka.common.security.plain.PlainLoginModule required username="$ConnectionString" password="{EVENT_HUB_CONNECTION_STRING_LISTEN}";',
+    "startingOffsets": "latest"
+}
+
+# Helper pour lire un topic
+def read_kafka_topic(topic):
+    return spark.readStream.format("kafka") \
+        .options(**kafka_read_options) \
+        .option("subscribe", topic) \
+        .load()
 
 # ══════════════════════════════════════════════════════════════
 #  CAPTEUR 1 — POLLUTION
 # ══════════════════════════════════════════════════════════════
 print("\n[1/4] Initialisation stream POLLUTION...")
 
-df_poll_raw = spark.readStream \
-    .format("kafka") \
-    .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP) \
-    .option("subscribe", TOPIC_POLLUTION) \
-    .option("startingOffsets", "latest") \
-    .load()
+df_poll_raw = read_kafka_topic(TOPIC_POLLUTION)
 
 df_poll = df_poll_raw \
     .select(from_json(col("value").cast("string"),
@@ -153,12 +163,7 @@ df_poll_alerts, df_poll_15min = build_alert_pipeline(
 # ══════════════════════════════════════════════════════════════
 print("[2/4] Initialisation stream TRAFIC...")
 
-df_traf_raw = spark.readStream \
-    .format("kafka") \
-    .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP) \
-    .option("subscribe", TOPIC_TRAFFIC) \
-    .option("startingOffsets", "latest") \
-    .load()
+df_traf_raw = read_kafka_topic(TOPIC_TRAFFIC)
 
 df_traf = df_traf_raw \
     .select(from_json(col("value").cast("string"),
@@ -199,12 +204,7 @@ df_traf_alerts, df_traf_15min = build_alert_pipeline(
 # ══════════════════════════════════════════════════════════════
 print("[3/4] Initialisation stream ECLAIRAGE...")
 
-df_ecl_raw = spark.readStream \
-    .format("kafka") \
-    .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP) \
-    .option("subscribe", TOPIC_ECLAIRAGE) \
-    .option("startingOffsets", "latest") \
-    .load()
+df_ecl_raw = read_kafka_topic(TOPIC_ECLAIRAGE)
 
 df_ecl = df_ecl_raw \
     .select(from_json(col("value").cast("string"),
@@ -249,12 +249,7 @@ df_ecl_alerts, df_ecl_15min = build_alert_pipeline(
 # ══════════════════════════════════════════════════════════════
 print("[4/4] Initialisation stream DECHETS...")
 
-df_dech_raw = spark.readStream \
-    .format("kafka") \
-    .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP) \
-    .option("subscribe", TOPIC_DECHETS) \
-    .option("startingOffsets", "latest") \
-    .load()
+df_dech_raw = read_kafka_topic(TOPIC_DECHETS)
 
 df_dech = df_dech_raw \
     .select(from_json(col("value").cast("string"),
@@ -296,6 +291,15 @@ df_dech_alerts, df_dech_15min = build_alert_pipeline(
 print("\nDémarrage des sinks...")
 queries = []
 
+# Pour chaque type, on écrit dans le topic smartcity-alerts (même Event Hub)
+# Options pour les producers (écriture)
+kafka_write_options = {
+    "kafka.bootstrap.servers": KAFKA_BOOTSTRAP_WRITE,
+    "kafka.security.protocol": "SASL_SSL",
+    "kafka.sasl.mechanism": "PLAIN",
+    "kafka.sasl.jaas.config": f'org.apache.kafka.common.security.plain.PlainLoginModule required username="$ConnectionString" password="{EVENT_HUB_CONNECTION_STRING_SEND}";',
+}
+
 for label, df_alerts, df_trends in [
     ("pollution",  df_poll_alerts,  df_poll_15min),
     ("traffic",    df_traf_alerts,  df_traf_15min),
@@ -304,8 +308,9 @@ for label, df_alerts, df_trends in [
 ]:
     # Sink 1 — Kafka smartcity-alerts (alertes ORANGE/ROUGE uniquement)
     q_kafka = write_alerts_to_kafka(
-        df_alerts, KAFKA_BOOTSTRAP, TOPIC_ALERTS,
-        f"{CHECKPOINT_DIR}/{label}-kafka"
+        df_alerts, KAFKA_BOOTSTRAP_WRITE, TOPIC_ALERTS,
+        f"{CHECKPOINT_DIR}/{label}-kafka",
+        kafka_options=kafka_write_options
     ).start()
     queries.append(q_kafka)
 
@@ -337,7 +342,7 @@ for label, df_alerts, df_trends in [
     print(f"  ✅ {label.upper():12} — {len([q_kafka, q_influx_alerts, q_influx_trends, q_console])} sinks actifs")
 
 print(f"\n{'=' * 60}")
-print(f"  {len(queries)} queries actives — pipeline complet opérationnel")
+print(f"  {len(queries)} queries actives — pipeline connecté à Azure Event Hubs")
 print(f"  En attente de messages Kafka...")
 print(f"  CTRL+C pour arrêter")
 print(f"{'=' * 60}\n")

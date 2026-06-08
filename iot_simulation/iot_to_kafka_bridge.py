@@ -2,16 +2,22 @@
 import os
 import json
 from dotenv import load_dotenv
-from azure.eventhub import EventHubConsumerClient
-from kafka import KafkaProducer
 
-# Charger .env depuis le même dossier
 env_path = os.path.join(os.path.dirname(__file__), '.env')
 load_dotenv(env_path)
 
-KAFKA_BOOTSTRAP_SERVERS = 'localhost:9093'
+from azure.eventhub import EventHubConsumerClient
+from kafka import KafkaProducer
 
-EVENT_HUB_CONNECTION_STRING = os.environ.get('EVENT_HUB_CONNECTION_STRING', '')
+# --- Connexion pour LIRE depuis IoT Hub (Event Hub intégré) ---
+IOTHUB_EVENTHUB_CONNECTION_STRING = os.getenv("EVENT_HUB_CONNECTION_STRING")
+IOTHUB_EVENTHUB_NAME = os.getenv("IOTHUB_EVENTHUB_NAME")
+
+# --- Connexion pour ÉCRIRE vers Event Hubs (via Kafka) ---
+EVENT_HUB_FQDN = os.getenv("EVENT_HUB_FQDN")
+KAFKA_BOOTSTRAP_SERVERS = f"{EVENT_HUB_FQDN}:9093"
+
+EVENT_HUB_CONNECTION_STRING_SEND = os.getenv("EVENT_HUB_CONNECTION_STRING_SEND")
 
 TOPICS = {
     'pollution': 'smartcity-pollution',
@@ -24,7 +30,12 @@ class IoTToKafkaBridge:
     def __init__(self):
         self.producer = KafkaProducer(
             bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
-            value_serializer=lambda v: json.dumps(v).encode('utf-8')
+            security_protocol='SASL_SSL',               # Connexion sécurisée
+            sasl_mechanism='PLAIN',
+            sasl_plain_username='$ConnectionString',    # Valeur fixe
+            sasl_plain_password=EVENT_HUB_CONNECTION_STRING_SEND,
+            value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+            api_version='2.8.0'
         )
         print("✅ Connecté à Kafka")
 
@@ -69,13 +80,14 @@ class IoTToKafkaBridge:
         print("🚀 Démarrage du bridge IoT Hub → Kafka")
         print("📡 En attente des messages depuis Azure IoT Hub...")
 
-        if not EVENT_HUB_CONNECTION_STRING:
+        if not IOTHUB_EVENTHUB_CONNECTION_STRING:
             print("❌ EVENT_HUB_CONNECTION_STRING manquante dans .env")
             return
 
         client = EventHubConsumerClient.from_connection_string(
-            EVENT_HUB_CONNECTION_STRING,
-            consumer_group="$Default"
+            IOTHUB_EVENTHUB_CONNECTION_STRING,
+            consumer_group="$Default",
+            eventhub_name=IOTHUB_EVENTHUB_NAME
         )
 
         try:
