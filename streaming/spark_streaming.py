@@ -1,5 +1,6 @@
 # ── 1. Environnement Windows ────────────────────────────────
 import sys, os
+from pyspark.sql.functions import to_timestamp
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from spark_env import get_jars_string, add_streaming_to_path
 add_streaming_to_path()
@@ -11,8 +12,10 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
     from_json, col, window, avg, when, lit, sum as _sum
 )
-from pyspark.sql.types import TimestampType
-
+# plus besoin de TimestampType, on utilise to_timestamp
+# from pyspark.sql.types import TimestampType   # commenté car inutile
+from configuration.config import KAFKA_BOOTSTRAP
+print(f"🔧 KAFKA_BOOTSTRAP from config = {KAFKA_BOOTSTRAP}")
 from configuration.config import (
     KAFKA_BOOTSTRAP, CHECKPOINT_DIR,
     TOPIC_POLLUTION, TOPIC_TRAFFIC, TOPIC_ECLAIRAGE, TOPIC_DECHETS,
@@ -62,12 +65,6 @@ print("=" * 60)
 
 # ══════════════════════════════════════════════════════════════
 # HELPER — construit les deux niveaux de fenêtres + alertes
-# Paramètres :
-#   df_parsed   : DataFrame parsé avec colonne event_time
-#   agg_exprs   : liste de colonnes d'agrégation (avg(...))
-#   alert_fn    : fonction (df_5min) -> df avec alert_level/message
-#   type_label  : "pollution" | "traffic" | "eclairage" | "dechets"
-#   valeur_col  : nom de la colonne principale pour InfluxDB
 # ══════════════════════════════════════════════════════════════
 def build_alert_pipeline(df_parsed, agg_exprs, alert_fn,
                          type_label, valeur_col):
@@ -75,7 +72,6 @@ def build_alert_pipeline(df_parsed, agg_exprs, alert_fn,
     Retourne (df_alerts_5min, df_trends_15min) prêts pour les sinks.
     """
     # — Fenêtre 5 min (alertes) ————————————————————————————
-    # Une moyenne > seuil sur 5 minutes = problème soutenu
     df_5min = df_parsed \
         .withWatermark("event_time", "5 minutes") \
         .groupBy(
@@ -87,7 +83,6 @@ def build_alert_pipeline(df_parsed, agg_exprs, alert_fn,
         .withColumn("type_capteur", lit(type_label)) \
         .withColumn("valeur_detectee", col(valeur_col))
 
-    # On n'envoie dans Kafka que les alertes réelles (pas VERT)
     df_alerts_filtered = df_alerts.filter(col("alert_level") != "VERT")
 
     # — Fenêtre 15 min (tendances pour P5/Grafana) ————————
@@ -120,8 +115,7 @@ df_poll = df_poll_raw \
     .select(from_json(col("value").cast("string"),
                       get_pollution_schema()).alias("d")) \
     .select("d.*") \
-    .withColumn("event_time", col("timestamp").cast(TimestampType()))
-
+    .withColumn("event_time", to_timestamp(col("timestamp"), "yyyy-MM-dd'T'HH:mm:ss.SSSSSSXXX"))
 
 def pollution_alert_fn(df):
     return df.withColumn("alert_level",
@@ -143,7 +137,6 @@ def pollution_alert_fn(df):
               "Elevation pollution - Surveillance renforcee")
         .otherwise("Normal")
     )
-
 
 df_poll_alerts, df_poll_15min = build_alert_pipeline(
     df_poll,
@@ -171,8 +164,7 @@ df_traf = df_traf_raw \
     .select(from_json(col("value").cast("string"),
                       get_traffic_schema()).alias("d")) \
     .select("d.*") \
-    .withColumn("event_time", col("timestamp").cast(TimestampType()))
-
+    .withColumn("event_time", to_timestamp(col("timestamp"), "yyyy-MM-dd'T'HH:mm:ss.SSSSSSXXX"))
 
 def traffic_alert_fn(df):
     return df.withColumn("alert_level",
@@ -193,7 +185,6 @@ def traffic_alert_fn(df):
         .otherwise("Circulation normale")
     )
 
-
 df_traf_alerts, df_traf_15min = build_alert_pipeline(
     df_traf,
     [avg("vehicles_per_min").alias("avg_vehicules"),
@@ -205,10 +196,6 @@ df_traf_alerts, df_traf_15min = build_alert_pipeline(
 
 # ══════════════════════════════════════════════════════════════
 #  CAPTEUR 3 — ÉCLAIRAGE
-#  CORRIGÉ :
-#    - Ajout de nb_faulty : compte les capteurs en état "faulty"
-#      sur la fenêtre (champ status ignoré dans la version initiale)
-#    - Seuils power_kw corrigés (0.40 / 0.55 kW au lieu de 5 / 8 kW)
 # ══════════════════════════════════════════════════════════════
 print("[3/4] Initialisation stream ECLAIRAGE...")
 
@@ -223,13 +210,11 @@ df_ecl = df_ecl_raw \
     .select(from_json(col("value").cast("string"),
                       get_eclairage_schema()).alias("d")) \
     .select("d.*") \
-    .withColumn("event_time", col("timestamp").cast(TimestampType()))
-
+    .withColumn("event_time", to_timestamp(col("timestamp"), "yyyy-MM-dd'T'HH:mm:ss.SSSSSSXXX"))
 
 def eclairage_alert_fn(df):
     return df.withColumn("alert_level",
         when(
-            # Panne détectée via le champ status (condition principale)
             (col("nb_faulty") >= 1)                         |
             (col("avg_luminosite") <= SEUIL_LUMINOSITE_ROUGE_MAX) |
             (col("avg_conso")      >= SEUIL_CONSO_ROUGE_MIN),
@@ -247,13 +232,11 @@ def eclairage_alert_fn(df):
         .otherwise("Fonctionnement normal")
     )
 
-
 df_ecl_alerts, df_ecl_15min = build_alert_pipeline(
     df_ecl,
     [
         avg("luminosity_lux").alias("avg_luminosite"),
         avg("power_kw").alias("avg_conso"),
-        # CORRIGÉ : compte les messages avec status == "faulty" sur la fenêtre
         _sum(when(col("status") == "faulty", 1).otherwise(0)).alias("nb_faulty")
     ],
     eclairage_alert_fn,
@@ -277,8 +260,7 @@ df_dech = df_dech_raw \
     .select(from_json(col("value").cast("string"),
                       get_dechets_schema()).alias("d")) \
     .select("d.*") \
-    .withColumn("event_time", col("timestamp").cast(TimestampType()))
-
+    .withColumn("event_time", to_timestamp(col("timestamp"), "yyyy-MM-dd'T'HH:mm:ss.SSSSSSXXX"))
 
 def dechets_alert_fn(df):
     return df.withColumn("alert_level",
@@ -298,7 +280,6 @@ def dechets_alert_fn(df):
               "Poubelle presque pleine - Planifier collecte sous 2h")
         .otherwise("Normal")
     )
-
 
 df_dech_alerts, df_dech_15min = build_alert_pipeline(
     df_dech,
