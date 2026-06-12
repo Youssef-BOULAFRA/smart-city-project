@@ -129,7 +129,7 @@ Procédure : modifier `iot_simulator.py` pour forcer `co2_ppm = 950` dans la zon
 | Composant | Version | Config |
 |-----------|---------|--------|
 | Windows   | 11 Pro  | — |
-| Java      | JDK 11.0.30 | JAVA_HOME configuré |
+| Java      | JDK 21 | JAVA_HOME configuré (voir spark_env.py) |
 | PySpark   | 3.5.1   | local[*] |
 | Kafka     | 7.4.0 (Confluent) | Docker, 1 broker |
 | InfluxDB  | 2.7     | Docker |

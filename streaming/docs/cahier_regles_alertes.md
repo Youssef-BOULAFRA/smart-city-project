@@ -38,23 +38,23 @@
 
 | Paramètre | VERT (normal) | ORANGE (surveillance) | ROUGE (critique) | Source |
 |-----------|--------------|----------------------|-----------------|--------|
-| CO2 (ppm) | ≤ 600 | 601 – 800 | > 800 | Valeur de référence intérieure |
-| PM2.5 (µg/m³) | ≤ 35 | 36 – 75 | > 75 | OMS + EPA AQI |
-| AQI | ≤ 150 | 151 – 300 | > 300 | EPA Air Quality Index |
+| CO2 (ppm) | ≤ 600 | 601 – 800 | ≥ 801 | Valeur de référence intérieure |
+| PM2.5 (µg/m³) | ≤ 35 | 36 – 75 | ≥ 76 | OMS + EPA AQI |
+| AQI | ≤ 150 | 151 – 300 | ≥ 301 | EPA Air Quality Index |
 
 ### Règles de déclenchement
 
 | # | Condition | Durée minimale | Niveau | Message |
 |---|-----------|---------------|--------|---------|
-| P1 | avg_co2 > 800 ppm | 5 minutes | 🔴 ROUGE | "CRITIQUE pollution - CO2 élevé 5min - Service Environnement" |
-| P2 | avg_pm25 > 75 µg/m³ | 5 minutes | 🔴 ROUGE | "CRITIQUE pollution - PM2.5 dangereux - Service Environnement" |
-| P3 | avg_aqi > 300 | 5 minutes | 🔴 ROUGE | "AQI dangereux - Population à risque - Alerte publique" |
-| P4 | avg_co2 > 600 ppm | 5 minutes | 🟠 ORANGE | "Élévation CO2 - Surveillance renforcée" |
-| P5 | avg_pm25 > 36 µg/m³ | 5 minutes | 🟠 ORANGE | "Élévation PM2.5 - Surveiller l'évolution" |
-| P6 | avg_aqi > 151 | 5 minutes | 🟠 ORANGE | "Qualité d'air dégradée - Surveillance active" |
+| P1 | avg_co2 ≥ 801 ppm | 5 minutes | 🔴 ROUGE | "CRITIQUE pollution - CO2 élevé 5min - Service Environnement" |
+| P2 | avg_pm25 ≥ 76 µg/m³ | 5 minutes | 🔴 ROUGE | "CRITIQUE pollution - PM2.5 dangereux - Service Environnement" |
+| P3 | avg_aqi ≥ 301 | 5 minutes | 🔴 ROUGE | "AQI dangereux - Population à risque - Alerte publique" |
+| P4 | avg_co2 ≥ 601 ppm | 5 minutes | 🟠 ORANGE | "Élévation CO2 - Surveillance renforcée" |
+| P5 | avg_pm25 ≥ 36 µg/m³ | 5 minutes | 🟠 ORANGE | "Élévation PM2.5 - Surveiller l'évolution" |
+| P6 | avg_aqi ≥ 151 | 5 minutes | 🟠 ORANGE | "Qualité d'air dégradée - Surveillance active" |
 
 ### Condition de résolution
-L'alerte est résolue automatiquement quand la valeur repasse sous le seuil ORANGE pendant au moins 2 fenêtres consécutives (10 minutes).
+Spark Streaming émet un nouvel état à chaque slide de fenêtre (1 minute). La résolution est **implicite** : dès que la moyenne 5 min repasse sous le seuil ORANGE, plus aucun message n'est publié dans `smartcity-alerts` pour cette zone. Côté tableau de bord Grafana (P5), le panel d'alerte se vide automatiquement après 2 fenêtres consécutives sans nouveau message (10 minutes), confirmant le retour à la normale.
 
 ---
 
@@ -68,15 +68,15 @@ L'alerte est résolue automatiquement quand la valeur repasse sous le seuil ORAN
 
 | Paramètre | VERT (normal) | ORANGE (surveillance) | ROUGE (critique) |
 |-----------|--------------|----------------------|-----------------|
-| Véhicules/min | ≤ 40 | 41 – 60 | > 60 |
+| Véhicules/min | ≤ 40 | 41 – 60 | ≥ 61 |
 | Vitesse moy (km/h) | > 30 | 11 – 30 | ≤ 10 |
 
 ### Règles de déclenchement
 
 | # | Condition | Durée minimale | Niveau | Message |
 |---|-----------|---------------|--------|---------|
-| T1 | avg_vehicules > 60/min OU avg_vitesse ≤ 10 km/h | 5 minutes | 🔴 ROUGE | "Chaos routier soutenu - Dérivation obligatoire - Police municipale" |
-| T2 | avg_vehicules > 40/min OU avg_vitesse ≤ 30 km/h | 5 minutes | 🟠 ORANGE | "Embouteillage détecté - Ralentissement en cours" |
+| T1 | avg_vehicules ≥ 61/min OU avg_vitesse ≤ 10 km/h | 5 minutes | 🔴 ROUGE | "Chaos routier soutenu - Dérivation obligatoire - Police municipale" |
+| T2 | avg_vehicules ≥ 41/min OU avg_vitesse ≤ 30 km/h | 5 minutes | 🟠 ORANGE | "Embouteillage détecté - Ralentissement en cours" |
 
 ---
 
@@ -90,15 +90,15 @@ L'alerte est résolue automatiquement quand la valeur repasse sous le seuil ORAN
 
 | Paramètre | VERT (normal) | ORANGE (surveillance) | ROUGE (critique) |
 |-----------|--------------|----------------------|-----------------|
-| Remplissage (%) | ≤ 75 | 76 – 90 | > 90 |
-| Poids (kg) | ≤ 60 | 61 – 80 | > 80 |
+| Remplissage (%) | ≤ 75 | 76 – 90 | ≥ 91 |
+| Poids (kg) | ≤ 60 | 61 – 80 | ≥ 81 |
 
 ### Règles de déclenchement
 
 | # | Condition | Durée minimale | Niveau | Message |
 |---|-----------|---------------|--------|---------|
-| D1 | avg_remplissage > 90% OU avg_poids > 80 kg | 5 minutes | 🔴 ROUGE | "Poubelle saturée - Collecte immédiate - Notification Voirie" |
-| D2 | avg_remplissage > 75% OU avg_poids > 60 kg | 5 minutes | 🟠 ORANGE | "Poubelle presque pleine - Planifier collecte sous 2h" |
+| D1 | avg_remplissage ≥ 91% OU avg_poids ≥ 81 kg | 5 minutes | 🔴 ROUGE | "Poubelle saturée - Collecte immédiate - Notification Voirie" |
+| D2 | avg_remplissage ≥ 76% OU avg_poids ≥ 61 kg | 5 minutes | 🟠 ORANGE | "Poubelle presque pleine - Planifier collecte sous 2h" |
 
 ---
 
@@ -106,21 +106,26 @@ L'alerte est résolue automatiquement quand la valeur repasse sous le seuil ORAN
 
 ### Normes de référence
 - **Norme EN 13201** : éclairage voie publique min 10 lux
-- **Consommation anormale** : > 8 kW par point lumineux = défaillance matérielle
+- **Consommation LED urbaine** : 0.3 – 0.6 kW nominal par point lumineux. Une consommation ≥ 0.55 kW indique un court-circuit ou une défaillance probable.
+- **Statut embarqué** : le capteur remonte directement un champ `status = "faulty"` lorsqu'il détecte sa propre panne matérielle. Cette information est plus fiable qu'une dérive indirecte.
+
+> Note : les seuils consommation ont été recalibrés sur la plage réelle du simulateur (0.05 – 0.60 kW). Les valeurs initiales (5 / 8 kW) étaient hors plage et n'auraient jamais déclenché d'alerte.
 
 ### Tableau des seuils
 
 | Paramètre | VERT (normal) | ORANGE (surveillance) | ROUGE (critique) |
 |-----------|--------------|----------------------|-----------------|
-| Luminosité (lux) | > 10 | 5 – 10 | < 5 |
-| Consommation (kW) | ≤ 5 | 5 – 8 | > 8 |
+| Luminosité (lux) | > 10 | 6 – 10 | ≤ 5 |
+| Consommation (kW) | < 0.40 | 0.40 – 0.54 | ≥ 0.55 |
+| Statut capteur | working | — | nb_faulty ≥ 1 |
 
 ### Règles de déclenchement
 
 | # | Condition | Durée minimale | Niveau | Message |
 |---|-----------|---------------|--------|---------|
-| E1 | avg_luminosite < 5 lux OU avg_conso > 8 kW | 5 minutes | 🔴 ROUGE | "Panne éclairage soutenu - Intervention technique urgente" |
-| E2 | avg_luminosite ≤ 10 lux OU avg_conso > 5 kW | 5 minutes | 🟠 ORANGE | "Anomalie éclairage - Surveillance nécessaire" |
+| E0 | nb_faulty ≥ 1 sur la fenêtre | 5 minutes | 🔴 ROUGE | "Panne éclairage détectée (status=faulty) - Intervention technique urgente" |
+| E1 | avg_luminosite ≤ 5 lux OU avg_conso ≥ 0.55 kW | 5 minutes | 🔴 ROUGE | "Panne éclairage soutenue - Intervention technique urgente" |
+| E2 | avg_luminosite ≤ 10 lux OU avg_conso ≥ 0.40 kW | 5 minutes | 🟠 ORANGE | "Anomalie éclairage - Surveillance nécessaire" |
 
 ---
 
